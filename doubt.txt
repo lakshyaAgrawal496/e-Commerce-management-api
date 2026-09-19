@@ -1,0 +1,203 @@
+##DATABASE
+
+Q. echo=True?
+
+SQLAlchemy prints the SQL it sends to MySQL.
+For example, if you execute:
+select(User)
+you'll see SQL output in your terminal.
+Something like:
+SELECT users.user_id, users.user_name, ...
+FROM users
+For production, you'd normally turn it off
+
+Q. Why await before commit()?
+
+You're using an AsyncSession:
+Its commit() performs database I/O — it has to communicate with MySQL and permanently commit the transaction.
+Because that I/O is asynchronous:
+"Start the commit operation and pause this coroutine until the database confirms that the commit is complete, while allowing the event loop to work on other tasks."
+
+Q. refresh() ? 
+
+explicitly Reload this ORM object from the database after saving it
+
+Q.
+result = await db.execute(select(User).where(User.email == email))
+user = result.scalar_one_or_none()
+
+scalar_one_or_none() extracts the User from that result:
+(User object,)
+      ↓
+ User object
+Why one_or_none()?
+
+It enforces this rule:
+
+0 rows → None
+1 row  → User object
+2+ rows → ERROR
+
+scalar()              → "Give me the first one."
+scalars()             → "Give me all of them."
+scalar_one()          → "There MUST be exactly one."
+scalar_one_or_none()  → "There can be zero or one."
+
+Q. Why CryptContext? not directly bcrypt?
+
+The biggest advantage: changing algorithms
+Suppose today you use: bcrypt
+Later you decide to move to another password-hashing algorithm.
+With CryptContext, your service's interface remains consistent.
+
+context.hash(password)
+context.verify(password, hash)
+
+Q.
+async def get_user():
+    result = await db.execute(...)   # async I/O
+but:
+def create_access_token():
+    return jwt.encode(...)            # no I/O
+
+Because async is needed primarily when the function performs I/O that can wait.
+Your create_access_token() does only CPU/memory operations
+There is no:
+database query
+network request
+file operation
+await
+other asynchronous I/O
+So there is nothing useful to await
+
+Q.
+
+JWT sub (subject) claim is conventionally represented as a string.
+So we explicitly do:
+"sub": str(user_id)
+
+Q. run_sync() ? 
+
+Async connection
+      ↓
+   run_sync()
+      ↓
+run synchronous SQLAlchemy function
+      ↓
+Base.metadata.create_all
+So you can use the synchronous metadata operation while remaining inside your async database setup.
+
+Q. @asynccontextmanager ?
+
+Python decorator that allows you to create an asynchronous context manager using a function containing yield.
+
+Q. db.add() ? 
+
+At this point, nothing has been inserted into MySQL yet.
+Instead, SQLAlchemy puts the Python object into the session's in-memory state.
+
+Q. result.scalars().all() 
+
+return a list of objs.
+If no products match, it returns:[]
+It does not return None.
+So this:
+if result is None:
+will never catch "no products found."
+Use:
+if not result
+
+Q.
+Depends() is not a normal function call. FastAPI needs to know that the function is a dependency so it can resolve its entire dependency chain automatically.
+
+Q.
+Why?
+jwt.encode() takes one algorithm:
+jwt.encode(
+    payload,
+    SECRET_KEY,
+    algorithm=ALGORITHM
+)
+But jwt.decode() takes a list of algorithms that you allow:
+jwt.decode(
+    token,
+    SECRET_KEY,
+    algorithms=[ALGORITHM]
+)
+
+Q. 
+.options(
+    selectinload(Cart.items)
+    .selectinload(CartItem.product)
+)
+
+This tells SQLAlchemy:
+
+"When you fetch the Cart, also fetch its CartItems, and for each CartItem fetch its Product."
+ 
+Q.model_config = ConfigDict(from_attributes=True) why?
+is telling Pydantic:
+"When creating this Pydantic model, you are allowed to get the values from the attributes of an object, instead of requiring a dictionary."
+Without from_attributes=True
+SQLAlchemy gives you ORM object , Pydantic normally expects something more like a dictionary:
+
+Q.model_validate()
+ProductResponse.model_validate(product)
+
+means:
+
+SQLAlchemy object → Pydantic model
+Pydantic's BaseModel constructor expects fields as keyword arguments
+
+Q.model_dump()
+product_response.model_dump()
+means:
+Pydantic model → Python dictionary
+
+But the dictionary can;t understand some objs and can't convert them into dict like Decimal, dstetime 
+That's why - 
+        jsonable_encoder()   introduced
+Take Python/Pydantic/FastAPI data and convert it into things that JSON can understand.
+jsonable_encoder(response)
+
+model_dump()     :     Pydantic model → Python data 
+jsonable_encoder() is more appropriate for JSON serialization 
+                 :     Python/Pydantic data → JSON-compatible Python data(dict)
+
+don't say:
+jsonable_encoder() converts into JSON format.
+
+Q.payment_id: int | None
+
+because from a database perspective an order can temporarily exist before its payment is attached while the transaction is in progress.
+
+Q.Why populate_existing=True fixes your case
+
+You're essentially telling SQLAlchemy:
+.execution_options(populate_existing=True)
+"I know this object may already exist in this session. Populate its state again from this query."
+So your second:
+get_cart(user_id)
+becomes an explicit fresh reload of the object/relationships you're querying.
+
+Q.You're replacing that AuthService class with:
+auth_router.AuthService = Mock(
+    return_value=self.auth_service
+)
+
+Why Mock?
+Because you're calling the constructor:
+AuthService(db)
+You are NOT doing:
+await AuthService(db)
+So the constructor should be a normal Mock.
+
+This is the actual service object
+You created:
+self.auth_service = AsyncMock()
+This represents the object returned by AuthService(db).
+Your router then does:
+await auth_service.register(...)
+and:
+await auth_service.login(...)
+Therefore this object must be AsyncMock.

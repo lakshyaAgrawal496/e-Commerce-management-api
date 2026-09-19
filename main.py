@@ -1,0 +1,45 @@
+from fastapi import FastAPI
+from routers import auth_router, product_router, inventory_router, cart_router, order_router
+from database import init_db
+from contextlib import asynccontextmanager
+from handler.exception_handler import user_already_exists,user_not_found,authentication_handler,authorization_handler,request_validation_handler,cart_not_found,inventory_not_found,insufficient_stock,cart_item_not_found,product_not_found,order_not_found,order_cannotbe_cancelled,order_cannotbe_returned,return_already_requested,payment_refund,payment_failed,order_already_cancelled
+from exceptions import UserAlreadyExistsError,UserNotFoundError,AuthorizationError,AuthenticationError,CartItemNotFoundError,CartNotFoundError,InsufficientStockError,InventoryNotFoundError,ProductNotFoundError,OrderNotFoundError,OrderCannotBeCancelledError,OrderCannotBeReturnedError,ReturnAlreadyRequestedError,PaymentFailedError,PaymentRefundError,AlreadyCancelledOrderError
+from fastapi.exceptions import RequestValidationError
+from logger.loggers import setup_logging
+
+setup_logging()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
+
+app = FastAPI(lifespan=lifespan)
+
+app.add_exception_handler(UserAlreadyExistsError,user_already_exists)
+app.add_exception_handler(UserNotFoundError,user_not_found)
+app.add_exception_handler(AuthenticationError,authentication_handler)
+app.add_exception_handler(AuthorizationError,authorization_handler)
+app.add_exception_handler(RequestValidationError,request_validation_handler)
+
+app.add_exception_handler(CartItemNotFoundError,cart_item_not_found)
+app.add_exception_handler(CartNotFoundError,cart_not_found)
+
+app.add_exception_handler(InsufficientStockError,insufficient_stock)
+app.add_exception_handler(InventoryNotFoundError,inventory_not_found)
+
+app.add_exception_handler(ProductNotFoundError,product_not_found)
+
+app.add_exception_handler(OrderNotFoundError,order_not_found)
+app.add_exception_handler(OrderCannotBeCancelledError,order_cannotbe_cancelled)
+app.add_exception_handler(OrderCannotBeReturnedError,order_cannotbe_returned)
+app.add_exception_handler(ReturnAlreadyRequestedError,return_already_requested)
+app.add_exception_handler(AlreadyCancelledOrderError,order_already_cancelled)
+app.add_exception_handler(PaymentFailedError,payment_failed)
+app.add_exception_handler(PaymentRefundError,payment_refund)
+
+app.include_router(auth_router.router)
+app.include_router(product_router.router)
+app.include_router(inventory_router.router)
+app.include_router(cart_router.router)
+app.include_router(order_router.router)
