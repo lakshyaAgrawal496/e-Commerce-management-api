@@ -15,5 +15,5 @@ class AuthRepo:
         result = await self.db.execute(select(User).where(User.email==email))
         return result.scalar_one_or_none()
 
-
+ 
 

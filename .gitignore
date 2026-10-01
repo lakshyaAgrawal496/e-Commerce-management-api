@@ -16,3 +16,6 @@ env/
 .coverage
 
 *.log
+
+doubt.txt 
+demo.py

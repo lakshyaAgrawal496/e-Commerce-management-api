@@ -11,5 +11,5 @@ def setup_logging():
 
     if not app_logger.handlers: 
         app_logger.addHandler(app_file_handler) 
-
+ 
     app_logger.propagate=False 

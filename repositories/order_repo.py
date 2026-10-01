@@ -20,15 +20,13 @@ class OrderRepo:
 
     async def get_order(self, order_id:int, user_id:int):
         result = await self.db.execute(select(Order).options(selectinload(Order.payment),selectinload(Order.items)\
-                                              .selectinload(OrderItem.product))\
-                                                .where(Order.order_id==order_id)\
-                                                    .where(Order.user_id == user_id))
+                                              .selectinload(OrderItem.product)).where(Order.order_id==order_id)\
+                                                .where(Order.user_id == user_id).execution_options(populate_existing=True))
         return result.scalar_one_or_none()
 
     async def get_order_history(self, user_id:int):
         result = await self.db.execute(select(Order).options(selectinload(Order.payment),selectinload(Order.items)\
-                                              .selectinload(OrderItem.product))\
-                                                .where(Order.user_id==user_id))
+                                              .selectinload(OrderItem.product)).where(Order.user_id==user_id))
         return result.scalars().all()
     
     async def get_all_orders(self):
@@ -36,9 +34,15 @@ class OrderRepo:
                                               .selectinload(OrderItem.product)))
         return result.scalars().all()
 
+    async def get_order_by_id(self, order_id: int):
+        result = await self.db.execute(select(Order).options(selectinload(Order.payment),selectinload(Order.items).selectinload(OrderItem.product))\
+                                       .where(Order.order_id == order_id).execution_options(populate_existing=True))
+        return result.scalar_one_or_none()
+
     async def update_order_status(self, order:Order, status:OrderStatus):
         order.status = status
         await self.db.flush()
+        return order
 
     async def get_return_order(self, order_id: int):
         result = await self.db.execute(select(ReturnOrder).where(ReturnOrder.order_id == order_id))

@@ -1,7 +1,6 @@
 ##DATABASE
 
 Q. echo=True?
-
 SQLAlchemy prints the SQL it sends to MySQL.
 For example, if you execute:
 select(User)
@@ -19,7 +18,6 @@ Because that I/O is asynchronous:
 "Start the commit operation and pause this coroutine until the database confirms that the commit is complete, while allowing the event loop to work on other tasks."
 
 Q. refresh() ? 
-
 explicitly Reload this ORM object from the database after saving it
 
 Q.
@@ -33,7 +31,6 @@ scalar_one_or_none() extracts the User from that result:
 Why one_or_none()?
 
 It enforces this rule:
-
 0 rows → None
 1 row  → User object
 2+ rows → ERROR
@@ -71,13 +68,11 @@ other asynchronous I/O
 So there is nothing useful to await
 
 Q.
-
 JWT sub (subject) claim is conventionally represented as a string.
 So we explicitly do:
 "sub": str(user_id)
 
 Q. run_sync() ? 
-
 Async connection
       ↓
    run_sync()
@@ -88,16 +83,15 @@ Base.metadata.create_all
 So you can use the synchronous metadata operation while remaining inside your async database setup.
 
 Q. @asynccontextmanager ?
-
 Python decorator that allows you to create an asynchronous context manager using a function containing yield.
+I need to manage the lifecycle
+use cases include initializing databases, loading ML models, creating Redis or HTTP clients, starting background workers, and then cleaning those resources up when the application shuts down.
 
 Q. db.add() ? 
-
 At this point, nothing has been inserted into MySQL yet.
 Instead, SQLAlchemy puts the Python object into the session's in-memory state.
 
 Q. result.scalars().all() 
-
 return a list of objs.
 If no products match, it returns:[]
 It does not return None.
@@ -106,6 +100,7 @@ if result is None:
 will never catch "no products found."
 Use:
 if not result
+Take all the rows returned by this query, extract the ORM object from each row, and give me all those objects as a list.
 
 Q.
 Depends() is not a normal function call. FastAPI needs to know that the function is a dependency so it can resolve its entire dependency chain automatically.
@@ -132,7 +127,6 @@ Q.
 )
 
 This tells SQLAlchemy:
-
 "When you fetch the Cart, also fetch its CartItems, and for each CartItem fetch its Product."
  
 Q.model_config = ConfigDict(from_attributes=True) why?
@@ -143,17 +137,15 @@ SQLAlchemy gives you ORM object , Pydantic normally expects something more like 
 
 Q.model_validate()
 ProductResponse.model_validate(product)
-
 means:
-
 SQLAlchemy object → Pydantic model
 Pydantic's BaseModel constructor expects fields as keyword arguments
+Take my SQLAlchemy User object, read its attributes, validate them against UserResponse, and return the resulting Pydantic response model."
 
 Q.model_dump()
 product_response.model_dump()
 means:
 Pydantic model → Python dictionary
-
 But the dictionary can;t understand some objs and can't convert them into dict like Decimal, dstetime 
 That's why - 
         jsonable_encoder()   introduced
@@ -168,11 +160,18 @@ don't say:
 jsonable_encoder() converts into JSON format.
 
 Q.payment_id: int | None
-
 because from a database perspective an order can temporarily exist before its payment is attached while the transaction is in progress.
 
-Q.Why populate_existing=True fixes your case
+Q. flush vs refresh
+flush()    :  Python object ──────→ Database
+refresh()  :  Database ───────────→ Python object
 
+Q.When refresh() actually useful?
+When the database changes or generates something that your Python object doesn't know about.
+Example: Database-generated value : Suppose your DB automatically generates a value-
+updated_at = CURRENT_TIMESTAMP
+
+Q.Why populate_existing=True fixes your case
 You're essentially telling SQLAlchemy:
 .execution_options(populate_existing=True)
 "I know this object may already exist in this session. Populate its state again from this query."
@@ -180,10 +179,12 @@ So your second:
 get_cart(user_id)
 becomes an explicit fresh reload of the object/relationships you're querying.
 
+Q. populate_existing vs refresh -
+Both refresh db values. populate_existing, if data is in cahche still on every call it will verify with the db.
+refresh when we do any update, it will be updated in db but might have stale value in cache
+
 Q.You're replacing that AuthService class with:
-auth_router.AuthService = Mock(
-    return_value=self.auth_service
-)
+auth_router.AuthService = Mock(return_value=self.auth_service)
 
 Why Mock?
 Because you're calling the constructor:
@@ -201,3 +202,846 @@ await auth_service.register(...)
 and:
 await auth_service.login(...)
 Therefore this object must be AsyncMock.
+
+Q.TestClient is a tool provided by FastAPI/Starlette for testing your API without actually starting Uvicorn.
+If you directly call an async def, you need to await it. If you call TestClient, TestClient handles the async FastAPI execution for you.
+def test_register()
+       ↓
+asyncio.run(...)
+       ↓
+runs event loop
+       ↓
+await service.register(...)
+       ↓
+await auth_repo.get_user(...)
+       ↓
+await auth_repo.create_user(...)
+       ↓
+returns UserResponse
+
+Q.Base becomes the parent/base class for all your ORM models.
+declarative_base() creates the declarative base class from which my ORM models inherit. SQLAlchemy uses this base's metadata to keep track of the table definitions.
+
+Engine?
+A SQLAlchemy Engine is the core database connectivity object that manages connection
+
+Q.
+Don't say:
+"Async makes the query itself faster."
+That's not necessarily true.
+Better:
+Async primarily improves concurrency for I/O-bound workloads by allowing the application to perform other work while awaiting database I/O.
+
+Q.
+echo controls whether SQLAlchemy logs SQL statements to the console.
+
+Q.
+sessionmaker creates a factory for database sessions.
+It doesn't create a session here.
+This:
+SessionLocal = sessionmaker(...)
+creates a factory.
+Later:
+async with SessionLocal() as db:
+actually creates a session.
+I use sessionmaker as a session factory so that session configuration is centralized
+
+Q.bind=engine
+This tells the session factory:
+The sessions I create should use this database engine.
+Without knowing which engine/database to use, the session wouldn't know where to execute its queries.
+
+Q.expire_on_commit=False
+By default, SQLAlchemy can expire ORM object attributes after commit.
+using this, the object's attributes remain available after commit.
+
+Q.Why yield instead of return?
+Because FastAPI dependencies using yield can have setup and cleanup logic.
+t therefore provides a convenient setup-and-cleanup lifecycle for the session.
+
+Q.Why dependency injection is better
+You would have database-session creation scattered throughout the application.
+Instead:
+db: AsyncSession = Depends(get_db)
+centralizes it.
+consistent session lifecycle
+automatic cleanup
+easier testing
+less duplicated code
+separation of concerns
+
+Q.begin() creates a transaction context.
+
+Q.ORM gives you developer productivity and abstraction
+
+Q.
+ForeignKey defines which database columns establish the connection. relationship() tells SQLAlchemy how to navigate between the corresponding ORM objects.
+And then selectinload() answers a third question:
+When I fetch Inventory, should SQLAlchemy also fetch the related Product objects immediately?
+
+Q.relationship() defines the ORM connection, JOIN uses tables together in a SQL query, and selectinload() loads related ORM objects efficiently.
+
+Q.Lazy loading
+"Don't fetch the relationship until I ask for it."
+cart.items
+triggers loading when needed.
+Eager loading
+"I know I'll need the relationship, so load it along with the original query."
+Examples:
+selectinload()
+
+Q.with_for_update()
+means:
+Lock selected database rows for this transaction so concurrent transactions can't modify them until the lock is released.
+
+Q.Coroutine?
+A coroutine is a function that can pause its execution and later resume from exactly where it paused
+
+Q.dependency caching means ? 
+If the same dependency is required multiple times during a single request, FastAPI normally executes it once and reuses its result.
+
+Q.FastAPI considered fast? 
+FastAPI uses Starlette and ASGI, which provide an asynchronous architecture. With async/await, I/O-bound operations can be handled efficiently because the server can work on other requests while one request is waiting for I/O.
+
+Q.What is FastAPI?
+FastAPI is a modern Python web framework for building APIs. It is built on top of Starlette for web handling and Pydantic for data validation and serialization. It supports asynchronous programming through ASGI and provides automatic OpenAPI/Swagger documentation.
+
+Q.Uvicorn?
+its ASGI web server thats job is to-
+-Listen network connection
+-Accept HTTP req -> Convert that req into ASGI format -> Pass it to FastAPI & vice versa
+
+ASGI define a stand interface between Uvicorn & FastAPI
+-scope: Contain info about conn/request e.g HTTp,GET,/path etc
+-send: Used by application to send rsponse back to server
+-receive:Used by application to receive data from server
+
+Q.
+Starlette is a lightweight ASGI web framework/toolkit that provides FastAPI's underlying web capabilities such as routing, middleware, requests, responses, WebSockets, and lifespan management. FastAPI builds on top of it and adds API-oriented features such as validation, dependency injection, and swagger.
+
+Q.Pydantic instead of normal classes?
+provides:
+validation
+parsing
+serialization
+schema generation
+
+Q.Why dependency injection?
+FastAPI handles the dependency resolution.
+Benefits:
+separation of concerns
+reusable dependencies
+easier testing
+centralized resource management
+cleaner routes
+
+Q.model_validator - mode = before 
+
+class UserRequest(BaseModel):
+    full_name: str
+    
+    @model_validator(mode="before")
+    @classmethod
+    def convert_old_format(cls, data):
+        if isinstance(data, dict):
+            if "full_name" not in data:
+                first = data.get("first_name")
+                last = data.get("last_name")
+                if first and last:
+                    data["full_name"] = f"{first} {last}"
+        return data
+
+{
+    "first_name": "Lakshya",
+    "last_name": "Agrawal"
+}
+{
+    "full_name": "Lakshya Agrawal"
+}
+
+Q.OpenAPI ? 
+Its specification standards for REST API. Its a contract that describe how ur API works(YAML/JSON)
+
+Q.Swagger UI?
+Swagger UI is a web-based interface for viewing and interacting with an OpenAPI description.
+
+
+                                    --REST API--
+
+Q.RPC is primarily an calling model, REST is an architectural style, and SOAP is a protocol.
+
+RPC — Remote Procedure Call
+Call a function/procedure that exists on another machine as if you were calling a local function.
+RPC hides the networking details from you.
+
+Marshalling
+Convert program data into something that can be transmitted.
+
+gRPC typically uses a compact binary format called Protocol Buffers instead of JSON
+
+Advantages of RPC/gRPC:
+-Fast
+    Binary serialization + HTTP/2.
+-Excellent for microservices
+
+Disadvantages of RPC/gRPC
+Tight coupling
+Harder to inspect manually
+Network transparency problem
+
+Q.
+SOAP is a strict XML-based messaging protocol.
+SOAP was designed for enterprise distributed systems where you may need standardized mechanisms for things like: formal contracts, enterprise messaging
+
+WSDL as the formal contract for a SOAP service. (Web Services Description Language)
+SOAP has a very mature ecosystem of enterprise standards
+
+Disadvantages:
+SOAP messages are verbose.
+XML also requires more parsing
+ 
+SOAP is often associated with WS-* standards.
+It describes the web service contract.
+Conceptually:
+WSDL
+ ↓
+What operations exist?
+What parameters?
+What responses?
+What types?
+Where is the service?
+
+WS-Security is a set of SOAP security standards that puts security information inside the SOAP message itself, primarily in the SOAP header.
+WS-ReliableMessaging
+    → Reliable message delivery
+WS-AtomicTransaction
+    → Distributed transactions : 2 phase commit(Tranaction coordinator checks ready/not) -  1st ask are all service ready if yes then commit all if no then abort
+ensure integrity
+
+WS-ReliableMessaging address standardized delivery behavior such as: acknowledgements , retransmission
+
+HTTP verb - 
+HEAD: similar to GET, but it only return header not body, UseCase: to only need header info about resource instead of big sized data
+OPTIONS: used to discover communication options supported by the server such as allowed HTTP methods.
+commonly used for CORS preflight requests
+
+Q.Etags?
+Its is used mainly for cache validation
+ETag is like a version number/fingerprint for a resource. It helps the client and server determine whether the resource has changed since the client last downloaded it.
+ETag provides a more precise way of identifying a particular representation of a resource, whereas Last-Modified relies on timestamps. ETags are particularly useful for dynamically generated resources and for optimistic concurrency control using If-Match. However, Last-Modified is simpler and can be preferable when a reliable modification timestamp is already available. They can also be used together.
+
+Q.Background task?
+Work executed asynchronously/background relative to the request.
+
+Q.Serialization?
+Serialization means converting a Python object into a format that can be easily transmitted, or exchanged, such as JSON, a dictionary, or bytes.
+Need?
+Because Python objects cannot directly be sent over HTTP.
+Why?
+HTTP transports bytes, not language-specific runtime objects. A Python object contains Python-specific structure, types, and behavior that another system may not understand. Serialization converts the object's relevant data into a standardized representation such as JSON, which can be encoded as bytes and transmitted over HTTP
+
+Q.Parsing?
+Parsing is the process of interpreting input data according to its expected structure and converting it into a form the program can work with.
+Suppose:
+{
+    "age": "21"
+}
+Pydantic may parse "21" into:
+age = 21
+But if you send:
+{
+    "age": "hello"
+}
+Pydantic cannot convert that into an integer, so validation fails.
+
+Q.Pydantic?
+Pydantic is a Python library for defining data schemas and performing runtime data validation, parsing, and serialization using Python type hints.
+
+Q.
+model_validate() = the action
+UserResponse.model_validate(user)
+means:
+"Take this input and validate/convert it into a UserResponse Pydantic model."
+
+from_attributes=True = the rule
+class UserResponse(BaseModel):
+    id: int
+    name: str
+    model_config = ConfigDict(from_attributes=True)
+means:
+"When validating an object, you are allowed to get values from its attributes (obj.id, obj.name)."
+
+class UserResponse(BaseModel):
+    id: int = Field(alias="user_id")
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True
+    )
+Now Pydantic knows:
+Pydantic field       ORM attribute
+     id       ←──────  user_id
+
+Q.ConfigDIct?
+ConfigDict = settings/instructions that tell Pydantic how this model should behave.
+
+Q. Literal vs ENUM 
+Use Literal when:
+You have a small, local constraint and don't need a reusable type.
+Use Enum when:
+The values represent a domain concept that appears throughout your application.
+class PaymentMethod(str, Enum):
+    CARD = "CARD"
+    UPI = "UPI"
+    COD = "COD"
+Definitely makes sense because payment method appears in: request schemas, response schemas,services,repo
+
+Q. index vs autoincrement
+index : The index organizes keys so the database can narrow down where the matching row is much more efficiently.
+because the entity we want to indx create mapping & and stored as B-Tree struct, when we want to lookup.it will be faster rather than it start from index 1 to 70000th index
+index=True : Makes searches/lookups on a column more efficient
+autoincrement=True : Automatically generates integer IDs
+
+Q.UUID?   -   Universally Unique Identifier.
+It is a 128-bit identifier designed to be extremely unlikely to collide with another generated UUID.
+Example: 550e8400-e29b-41d4-a716-446655440000
+It looks like a random string, but it actually has a defined UUID format.
+UseCase : Idempotency key generation, Public opaque resource identifiers, professional way for unique id rather tha incremenetal_id.
+
+default provides a fixed default value, while default_factory provides a callable that Pydantic executes when a model instance is created to generate the default value. default_factory executes when a model instance is created and the field value wasn't explicitly provided.
+request_id: UUID = Field(default_factory=uuid4) : every time the obj is created it will call default factory and create new uuid for each obj creation instead of 
+request_id: str = str(uuid4())  : it create uuid once during class defination, it will return same uuid every time it is called!
+
+Q.
+ATOMIC TRANSACTION
+"One transaction. Roll everything back if it fails."
+
+2PC
+"Multiple transactional resources. Coordinator gets
+everyone ready, then tells everyone to commit/abort."
+
+SAGA
+"Multiple independent local transactions.
+If something fails, compensate the completed steps."
+
+Q.Saga Pattern?
+A Saga breaks one large distributed transaction into a sequence of local transactions, with a compensating action for each step if something later fails.
+
+Transaction 1 → Transaction 2 → Transaction 3
+
+and define how to undo previous successful steps.
+Create Order       ✅
+     ↓
+Reserve Inventory  ✅
+     ↓
+Charge Payment     ❌
+Saga executes compensating actions:
+Payment failed
+     ↓
+Release Inventory
+     ↓
+Cancel Order
+
+Forward action          Compensation
+Create Order      →     Cancel Order
+Reserve Inventory →     Release Inventory
+Charge Payment    →     Refund Payment
+
+Saga doesn't mean rollback
+
+Q.Background Task: The task is scheduled to execute after the main request handling has completed, so the response does not wait for that task.
+
+Q.Critical path: The critical path is the work that must finish before you can give the user the response.
+
+Q.What is GIL?
+GIL = Global Interpreter Lock.
+In CPython (the standard Python implementation), the GIL is a lock that ensures that only one thread at a time executes Python bytecode inside a process. The GIL protects CPython interpreter state while Python bytecode is executing.
+Need the GIL?
+The biggest reason is memory management, especially reference counting.
+Now imagine two threads simultaneously manipulating references to the same object.
+Thread 1                 Thread 2
+   │                        │
+   ▼                        ▼
+increment refcount      decrement refcount
+If both modify the same counter concurrently without synchronization, you can get a race condition.
+
+The GIL prevents multiple threads from simultaneously executing Python bytecode in the same CPython process.
+CPython periodically switches between threads and can release the GIL during blocking operations or when native code explicitly releases it.
+Thread 1
+   │
+   ├── waiting for network
+   │
+   └── GIL released
+              │
+              ▼
+         Thread 2 gets GIL
+              │
+              ▼
+         executes Python
+
+CPU-bound → multiprocessing on different CPU cores
+I/O-bound → asyncio or threading 
+                CPython
+                    │
+                  GIL
+                    │
+             controls THREADS
+                    │
+                    ▼
+              Event Loop
+                    │
+             schedules TASKS
+                    │
+                    ▼
+               await()
+                    │
+          voluntarily yields
+                    │
+                    ▼
+          another TASK runs
+
+In asyncio, when a coroutine reaches an I/O await, it suspends and gives control back to the event loop, which can run another coroutine on the same thread. The GIL still exists in traditional CPython, but the switch between asyncio tasks is not a GIL handoff; it is cooperative coroutine scheduling.
+GIL: "Which thread can execute Python bytecode?"
+Event loop: "Which coroutine/task should run on this thread?"
+await: "This coroutine can't continue right now; give control back to the event loop."
+
+Asyncio is designed for cooperative I/O concurrency. If a CPU-bound operation runs directly on the event-loop thread, it blocks the entire event loop because the coroutine doesn't yield. We should offload CPU-bound work to a process pool or external worker. A thread pool can keep the event loop responsive, but under the traditional CPython GIL it generally doesn't provide true parallelism for pure-Python CPU-bound work
+
+Q.What is a process pool?
+A process pool is basically a collection of worker processes that are ready to execute CPU work.
+
+Q.How does the event loop submit work?
+Python provides:
+ProcessPoolExecutor/Job queue
+You can connect it with asyncio:
+Conceptually:
+                Event Loop
+                    │
+                    │ submit()
+                    ▼
+             Process Pool
+                    │
+             ┌──────┴──────┐
+             ▼             ▼
+         Process 1      Process 2
+             │
+             ▼
+     heavy_calculation()
+
+The event-loop thread does not perform the CPU calculation.
+
+@app.get("/calculate")
+async def calculate():
+    loop = asyncio.get_running_loop()
+
+    result = await loop.run_in_executor(        #Run heavy_calculation() in this process pool
+        process_pool,
+        heavy_calculation,
+        100_000_000
+    )
+    return {"result": result}
+
+Main Process                 Worker Process
+─────────────                ──────────────
+Event Loop                   CPU calculation
+    │                             │
+   GIL 1                         GIL 2
+    │                             │
+ I/O tasks                      CPU work
+
+Q.But how does data move between processes?
+Processes have separate memory.
+You cannot simply do:
+Process 1
+   │
+   └── memory ───────┐
+                     │
+Process 2            │
+   │                 │
+   └── memory ───────┘
+They don't share ordinary Python objects.
+So Python has to serialize the arguments/result and transfer them between processes.
+
+Main Process
+     │
+     │ Python object
+     ▼
+ serialization
+     │
+     ▼
+ IPC / pipe
+     │
+     ▼
+Worker Process
+     │
+     ▼
+ deserialization
+     │
+     ▼
+Python object
+
+This is why process pools have overhead.
+
+Q.What if you have a huge amount of CPU work?
+
+This is where a job queue becomes useful.
+you can have:
+                    ┌───────────────┐
+Client ──► FastAPI ─►│  Job Queue    │
+                    └───────┬───────┘
+                            │
+                 ┌──────────┼──────────┐
+                 ▼          ▼          ▼
+              Worker 1   Worker 2   Worker 3
+                 │          │          │
+                CPU        CPU        CPU
+
+Examplke : Celery
+
+Q.Why use a queue instead of a process pool?
+Imagine 10,000 users submit CPU-heavy jobs.
+A process pool inside your FastAPI application might become a bottleneck.
+A queue gives you decoupling.
+
+                    FASTAPI PROCESS
+                         │
+                    Event Loop
+                         │
+          ┌──────────────┼──────────────┐
+          │              │              │
+       Task A          Task B         Task C
+          │              │              │
+       await DB       await HTTP      await Redis
+          │              │              │
+          └──────────────┼──────────────┘
+                         │
+                  Event loop remains
+                     responsive
+                         
+                CPU-heavy operation
+                         │
+                         ▼
+                  DON'T execute
+                  directly here
+                         │
+                         ▼
+              ┌────────────────────┐
+              │    Process Pool    │
+              │        OR          │
+              │    Job Queue       │
+              └─────────┬──────────┘
+                        │
+              ┌─────────┼─────────┐
+              ▼         ▼         ▼
+           Process    Process    Process
+              1          2          3
+              │          │          │
+             GIL        GIL        GIL
+              │          │          │
+            CPU 1      CPU 2      CPU 3
+
+UseCases: 
+ProcessPoolExecutor:
+Image resize taking 1–2 sec, API needs result	CPU work is short and request needs result
+PDF generation taking 2–5 sec, API needs PDF immediately	Bounded CPU work
+
+job Queue:
+ML model training	Long-running CPU/GPU work
+Image/video processing at huge scale	Need multiple workers and scaling
+Job queue interal working:
+Submit job → immediately return job ID → process asynchronously → client polls/checks result or receives a notification when complete.
+
+Q.
+asyncio.create_task() schedules a coroutine as an asyncio Task on the currently running event loop. It does not create a thread, process, or queue job; the coroutine executes on the event-loop thread whenever it is runnable.
+
+await: 
+    await A()
+    await B()
+    If A suspend then the whole function will wait for A response untill other task in event loop will be executed
+create_task():
+    task_a = asyncio.create_task(A())
+    task_b = asyncio.create_task(B())
+    It explicitly add both the task of a same fucntion in the event loop.. if A suspend then B can start running, as it was scheduled independently on the event loop and can do the context switch within the these two task
+
+Q.What is synchronous programming?
+In synchronous programming, execution follows a sequence, and the current flow waits for an operation to finish before moving forward.
+
+Q.What is asynchronous programming?
+Async programming allows a task to pause while waiting for something, allowing other work to make progress.
+
+Q,Event loop?
+An event loop is a mechanism that schedules and executes asynchronous tasks, monitoring I/O operations and resuming coroutines when their awaited operations become ready.
+
+async → "this function can be asynchronous"
+await → "pause here while waiting and let other async work run"
+
+Q.Threading?
+A thread is an execution unit within a process. Multiple threads share the same process memory and resources but can execute independently.
+
+Q.Does every function containing await have to be async def?"
+In normal Python syntax, yes.
+def foo():
+    await something()
+→ SyntaxError.
+
+Status code:
+-400: Bad request : I can't properly process what you sent
+{
+    "name": "Lakshya",
+    "age": 21
+
+Missing }.
+The server can't properly parse the JSON.
+
+-422 Unprocessable Content: I successfully understood what you sent, but the values don't satisfy my application's validation rules."
+
+{
+    "product_name": "Apple",
+    "quantity": -10
+}
+
+
+Q.Routing-workflow?
+When the application starts, FastAPI registers the routes from each APIRouter with the application. Each registered route contains its path, HTTP methods, and a reference to its endpoint function. At request time, Starlette's routing system matches the incoming HTTP method and path against the registered routes. Once a route matches, the route already knows which endpoint function it is associated with, so the router file itself does not need to be searched.
+
+product.py
+   │
+   │ @router.get("/search")
+   ↓
+APIRouter
+   │
+   │ contains
+   ↓
+Route object
+   │
+   ├── path = "/products/search"
+   ├── method = GET
+   └── endpoint = search_products  ← actual Python function
+                         │
+                         │
+app.include_router()
+                         ↓
+                FastAPI application
+                         │
+                         ↓
+              registered routes
+                         │
+              REQUEST: GET /products/search
+                         │
+                         ↓
+              Starlette route matching
+                         │
+                         ↓
+                   matching Route
+                         │
+                         ↓
+                 endpoint reference
+                         │
+                         ↓
+                  search_products()
+
+@router.post() registers an endpoint route with the APIRouter; 
+app.include_router() takes those routes from the APIRouter and incorporates them into the main FastAPI application's routing system.
+
+And .router exists simply because auth_router is your Python module, while router is the APIRouter object defined inside that module.
+
+Q.
+The HTTP method belongs to the route registration, not to the Python function. The same Python function can technically be registered for GET, POST, PUT, or PATCH, but a GET request does not become a POST merely because you put a body in it.
+
+
+Q.Middleware?
+Middleware is a component that wraps a downstream ASGI application and can process requests before passing them downstream and responses while they return. In FastAPI/Starlette, I would distinguish middleware by abstraction level rather than calling low-level and high-level formal types. At the low level, middleware works directly with the ASGI interface — scope, receive, and send. It can be implemented as a callable class or function and is useful when we need protocol-level control, such as intercepting ASGI events or handling HTTP/WebSocket/lifespan behavior. At a higher level, FastAPI/Starlette provides an HTTP middleware abstraction through @app.middleware("http"), where we work with a Request object and call_next. This is convenient for common HTTP concerns like logging, timing, request IDs, headers, and metrics. Class-based middleware is an implementation style, not a separate abstraction level; app.add_middleware() registers such middleware into the ASGI middleware stack.
+
+
+Q.CORS?
+Cross-Origin
+     ↓
+request between different origins
+
+Resource
+     ↓
+API/resource being requested
+
+Sharing
+     ↓
+server tells browser that the resource
+may be accessed by that origin
+
+Q.Break down %(asctime)s
+%(asctime)s
+│ │       │
+│ │       └── s = format as a string
+│ └────────── key/field name
+└──────────── % = substitution syntax
+
+Q.formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+This creates a Formatter object.
+A formatter answers: "How should a LogRecord be converted into text?"
+
+Q.app_logger = logging.getLogger("GrocerEase")
+This is very important.
+It obtains a Logger object with the name GrocerEase
+Python's logging module maintains a logger hierarchy/registry.
+logging registry
+      │
+      └── "GrocerEase"
+              ↓
+         Logger object
+Because applications can have multiple loggers.
+logging.getLogger("GrocerEase.auth")
+logging.getLogger("GrocerEase.orders")
+logging.getLogger("GrocerEase.payment")
+GrocerEase
+├── auth
+├── orders
+└── payment
+This forms a logger hierarchy.
+
+Q.app_logger.setLevel(logging.INFO)
+This sets the logger's minimum severity threshold.
+
+
+Q.app_file_handler = logging.FileHandler("logger/logs.log")
+This creates a FileHandler.
+A handler answers: "Where should this log record go?"
+
+logging.StreamHandler()
+which typically sends logs to a stream such as the console.
+
+Q.app_logger.propagate = False
+It says:
+"After this logger handles the record with its own handlers, don't pass the record to its parent logger.
+GrocerEase.propagate = False
+the record stops at GrocerEase:
+auth
+ ↓
+GrocerEase
+ X
+root
+Why is that useful?
+Because otherwise you can accidentally get duplicate logs.
+If GrocerEase propagates to root:
+logger
+  ↓
+GrocerEase handler → file
+  ↓
+root handler → console
+
+Q.Why are you using GrocerEase.auth_service instead of just GrocerEase?"
+
+Say:
+
+"Python logging uses hierarchical logger names separated by dots. GrocerEase.auth_service is a child logger of GrocerEase, not a subclass. I configure the handler on the parent GrocerEase logger, and child service loggers propagate their records to that parent. This allows all services to share the same handler and formatter while %(name)s identifies which service generated each record
+
+
+Q.Your lifespan is intended for things such as:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+
+    # startup
+    await init_db()
+    await connect_to_redis()
+    await load_models()
+
+    yield
+
+    # shutdown
+    await close_redis()
+    await close_connections()
+
+Q.how do you authenticate before reaching the router?
+"I can perform authentication in ASGI/HTTP middleware before downstream routing by extracting the Bearer token, verifying the JWT signature and claims, checking expiration and token type, resolving the user identity, and attaching that identity to the request scope. However, I would generally keep endpoint-specific authorization in FastAPI dependencies because different routes have different permission requirements."
+
+Do you want authentication for:
+/auth/login
+/auth/register
+Obviously not.
+So your middleware needs something like:
+PUBLIC_PATHS = {
+    "/auth/login",
+    "/auth/register",
+}
+if request.url.path in PUBLIC_PATHS:
+    await call_next(request)
+    return
+
+Q.Why did you keep setup_logging() outside lifespan?"
+"setup_logging() is application/process configuration rather than a lifecycle resource. I want logging configured before the FastAPI lifecycle begins so startup operations such as database initialization can also use the configured logging system. The lifespan handler is mainly for resources that need startup initialization and shutdown cleanup."
+
+engine = create_async_engine(...)
+creates an engine/pool with application-level lifetime, so disposing the engine at shutdown makes sense.
+
+Q.Can GET technically have a body?"
+"HTTP does not universally prohibit a GET request from carrying content, but GET request bodies have no generally defined semantics in HTTP and intermediaries/frameworks may not handle them consistently. For API design, query/path parameters are normally used for GET."
+
+Q.Does FastAPI enforce POST = create, PUT = update, DELETE = delete?
+"No. FastAPI/Starlette enforce the registered HTTP method during route matching, but they don't enforce what business operation the endpoint performs. GET/POST/PUT/DELETE have defined HTTP semantics that we should follow when designing the API, but the framework doesn't inspect our endpoint implementation and prevent us from performing a different operation.
+
+Q.dependency injection?
+Dependency Injection is a design pattern where an object/function receives the resources or services it needs from an external provider instead of creating those dependencies itself.
+
+Q.Why can't we simply write this?
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
+Actually, you can write an async generator like that, but it isn't automatically an async context manager.
+The problem is that FastAPI's lifespan= parameter expects an async context manager.
+
+What if I remove @asynccontextmanager?
+async def lifespan(app: FastAPI):
+    await init_db()
+    yield
+
+app = FastAPI(lifespan=lifespan)
+
+You haven't given FastAPI the expected lifespan context-manager interface.
+So when FastAPI/Starlette tries to use your lifespan handler as an async context manager, you can get an error along the lines of:
+TypeError: 'async_generator' object does not support
+the asynchronous context manager protocol
+
+Q.But why does the function need yield?
+FastAPI doesn't execute all three parts immediately.
+it means Startup is finished. Give control to the application. When the application is shutting down, resume me here
+
+Uvicorn
+   │
+   │ lifespan.startup
+   ▼
+Starlette
+   │
+   │ enter lifespan context
+   ▼
+your lifespan()
+   │
+   ├── init_db()
+   │
+   └── yield
+          │
+          ▼
+   Starlette regains control
+          │
+          ▼
+   startup.complete
+          │
+          ▼
+   ┌───────────────────────┐
+   │ Application serves    │
+   │ HTTP/WebSocket        │
+   │ requests               │
+   └───────────────────────┘
+          │
+          │ shutdown signal
+          ▼
+   Starlette resumes
+   lifespan after yield
+          │
+          ▼
+   engine.dispose()
+
+
+Q.Why is tokenUrl required if OAuth2PasswordBearer doesn't call that URL?"
+"tokenUrl is part of the OAuth2 password-flow security scheme definition. FastAPI uses it to describe the OAuth2 flow in OpenAPI and Swagger UI. The dependency itself extracts the bearer token from incoming requests; it doesn't make a request to the token URL."
+
+
+
+
+

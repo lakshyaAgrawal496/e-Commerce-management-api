@@ -1,8 +1,15 @@
 from fastapi import Request, status
 from fastapi.exceptions import RequestValidationError
+from sqlalchemy.exc import IntegrityError
 from models.response import ErrorDetail
 from utils.response import error_response
 from exceptions import UserAlreadyExistsError,UserNotFoundError,AuthenticationError,AuthorizationError,CartNotFoundError,CartItemNotFoundError,InventoryNotFoundError,InsufficientStockError,OrderNotFoundError,OrderCannotBeCancelledError,OrderCannotBeReturnedError,ReturnAlreadyRequestedError,PaymentFailedError,PaymentRefundError,ProductNotFoundError,AlreadyCancelledOrderError
+
+async def integrity_error_handler(request: Request,exc: IntegrityError):
+    return error_response(
+        status_code=status.HTTP_409_CONFLICT,
+        message="Database integrity constraint violated"
+    )
 
 async def user_already_exists(request:Request, exc:UserAlreadyExistsError):
     return error_response(
@@ -95,14 +102,14 @@ async def order_cannotbe_cancelled(request:Request, exc:OrderCannotBeCancelledEr
 
 async def order_cannotbe_returned(request:Request, exc:OrderCannotBeReturnedError):
     return error_response(
-        status_code=status.HTTP_400_BAD_REQUEST,
+        status_code=status.HTTP_409_CONFLICT,
         message="Order can not be returned before delivery",
         errors=[ErrorDetail(field="order_id",message="Order can not be returned")]
     )
 
 async def return_already_requested(request:Request, exc:ReturnAlreadyRequestedError):
     return error_response(
-        status_code=status.HTTP_400_BAD_REQUEST,
+        status_code=status.HTTP_409_CONFLICT,
         message="Order return already requested",
         errors=[ErrorDetail(field="order_id",message="Order return already requested")]
     )
@@ -123,7 +130,7 @@ async def payment_failed(request:Request, exc:PaymentFailedError):
 
 async def order_already_cancelled(request:Request, exc:AlreadyCancelledOrderError):
     return error_response(
-        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        status_code=status.HTTP_409_CONFLICT,
         message="Order already cancelled",
         errors=[ErrorDetail(field="order_id",message="Order already cancelled")]
     )

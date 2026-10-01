@@ -20,7 +20,7 @@ class CartRepo:
         return cart_item
  
     async def get_cart_item(self,product_id:int, cart_id:int):
-        result = await self.db.execute(select(CartItem).where(CartItem.product_id==product_id).where(CartItem.cart_id==cart_id))
+        result = await self.db.execute(select(CartItem).where(CartItem.product_id==product_id).where(CartItem.cart_id==cart_id).execution_options(populate_existing=True))
         return result.scalar_one_or_none()
 
     async def get_cart(self, user_id):
@@ -28,8 +28,7 @@ class CartRepo:
                                      .where(Cart.user_id==user_id))
         return cart.scalar_one_or_none()
 
-    async def update_cart_item(self,product_id,cart_id,new_quantity:int):
-        cart_item = await self.get_cart_item(product_id,cart_id)
+    async def update_cart_item(self, cart_item:CartItem, new_quantity:int):
         cart_item.quantity = new_quantity
         await self.db.flush()
         return cart_item
