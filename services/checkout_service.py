@@ -14,7 +14,7 @@ class CheckoutService:
         self.inventory_repo = InventoryRepo(db)
 
     @staticmethod
-    def discount(total:int):
+    def discount(total:Decimal):
         if total<2000:
             return Decimal("0")
         if total>=2000 and total<5000:
@@ -38,7 +38,7 @@ class CheckoutService:
         for item in cart.items:
             inventory = await self.inventory_repo.get_inventory(item.product_id)
             if inventory is None:
-                logger.warning(f"Checkout failed: inventory not found - product_id=%s")
+                logger.warning(f"Checkout failed: inventory not found - product_id={item.product_id}")
                 raise InventoryNotFoundError()
             if inventory.quantity < item.quantity:
                 logger.warning(f"Checkout failed: insufficient inventory - product_id={item.product_id} requested={item.quantity} available={inventory.quantity}")

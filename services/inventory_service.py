@@ -31,12 +31,13 @@ class InventoryService:
             if existing_inventory:
                 new_quantity = existing_inventory.quantity + inventory.quantity
                 updated_inventory = await self.inventory_repo.update_inventory_quantity(existing_inventory, new_quantity)
-                logger.info(f"Inventory quantity increased - product_id={inventory.product_id} old_quantity={existing_inventory.quantity} new_quantity={new_quantity}")
+                logger.info(f"Inventory quantity increased - product_id={inventory.product_id} quantity={new_quantity}")
                 return self.orm_to_inventory_response(updated_inventory)
 
             inventory_data = Inventory(**inventory.model_dump())
-            new_inventory = await self.inventory_repo.add_inventory(inventory_data)
-            logger.info(f"Inventory created successfully - product_id={inventory.product_id} quantity={inventory.product_id}")
+            await self.inventory_repo.add_inventory(inventory_data)
+            new_inventory = await self.inventory_repo.get_inventory(inventory.product_id)
+            logger.info(f"Inventory created successfully - product_id={inventory.product_id} quantity={inventory.quantity}")
             return self.orm_to_inventory_response(new_inventory)
 
     async def get_all_inventory(self):
@@ -56,23 +57,10 @@ class InventoryService:
         
         logger.info("Inventory is fetched successfully")
         return self.orm_to_inventory_response(inventory)
-
-    async def increment_inventory_quantity(self,product_id:int, delta:int):
-        async with self.db.begin():
-            inventory = await self.inventory_repo.get_inventory(product_id)
-            if inventory is None:
-                logger.warning(f"Inventory not found - product_id={product_id}")
-                raise InventoryNotFoundError()
-
-            new_quantity = inventory.quantity + delta
-            updated_inventory = await self.inventory_repo.update_inventory_quantity(inventory,new_quantity)
-
-            logger.info(f"Inventory incremented - product_id={product_id} new_quantity={new_quantity}")
-            return self.orm_to_inventory_response(updated_inventory)
     
-    async def set_inventory(self,product_id:int, new_quantity:int):
+    async def update_inventory_quantity(self,product_id:int, new_quantity:int):
         async with self.db.begin():
-            inventory = await self.inventory_repo.get_inventory(product_id)
+            inventory = await self.inventory_repo.get_inventory_for_update(product_id)
             if inventory is None:
                 logger.warning(f"Inventory not found - product_id={product_id}")
                 raise InventoryNotFoundError()

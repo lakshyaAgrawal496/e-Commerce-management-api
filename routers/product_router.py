@@ -6,7 +6,7 @@ from services import ProductService
 from utils.response import success_response
 
 router = APIRouter(
-    prefix="/product",
+    prefix="/products",
     tags=["Product"]
 )
 
@@ -20,7 +20,7 @@ async def create_product(product:ProductRequest, db:db_dependency, current_user:
         data=product
     )
 
-@router.get("/search")
+@router.get("")
 async def get_product_by_search_term(db:db_dependency, current_user:user_dependency, search_term:str=Query(min_length=1)):
     product_service = ProductService(db)
     products = await product_service.get_product_by_search_term(search_term)

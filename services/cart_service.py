@@ -59,7 +59,7 @@ class CartService:
                 raise InsufficientStockError()
     
             if existing_item:
-                await self.cart_repo.update_cart_item(cart_item.product_id,cart.cart_id,final_quantity)
+                await self.cart_repo.update_cart_item(existing_item,final_quantity)
             else:
                 item = CartItem(
                     cart_id = cart.cart_id,

@@ -4,7 +4,7 @@ from sqlalchemy import Column, Integer, ForeignKey
 
 class Inventory(Base):
     __tablename__ = "inventory"
-    inventory_id = Column(Integer, primary_key=True, index=True)
+    inventory_id = Column(Integer, primary_key=True, autoincrement=True)
     product_id = Column(Integer, ForeignKey("products.product_id"))
     quantity = Column(Integer)
 

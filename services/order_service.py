@@ -1,10 +1,10 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from models import OrderResponse, OrderItemResponse
+from models import OrderResponse, OrderItemResponse,ReturnOrderRequest
 from schemas import OrderItem, Order, ReturnOrder
 from repositories import OrderRepo,CartRepo,InventoryRepo
 from services import CheckoutService, PaymentService
 from exceptions import OrderNotFoundError,OrderCannotBeCancelledError,OrderCannotBeReturnedError,ReturnAlreadyRequestedError,InventoryNotFoundError,InsufficientStockError,CartItemNotFoundError,PaymentFailedError,AlreadyCancelledOrderError
-from utils.enums import PaymentMethod, OrderStatus
+from utils.enums import PaymentMethod, OrderStatus, OrderUpdateStatus
 import logging
 
 logger = logging.getLogger("GrocerEase.order_service")
@@ -68,6 +68,15 @@ class OrderService:
         async with self.db.begin():
             checkout_data = await self.checkout_service.checkout(user_id)
 
+            for item in checkout_data.items:
+                inventory = await self.inventory_repo.get_inventory_for_update(item.product_id)
+                if inventory is None:
+                    logger.warning(f"Inventory not found - product_id={item.product_id}")
+                    raise InventoryNotFoundError()
+                if inventory.quantity < item.quantity:
+                    logger.warning(f"Insufficient inventory - product_id={item.product_id} requested={item.quantity} available={inventory.quantity}")
+                    raise InsufficientStockError()
+
             total_amount = checkout_data.total_amount
             discount_amount = checkout_data.discounted_amount
             final_amount = checkout_data.final_amount
@@ -82,12 +91,6 @@ class OrderService:
 
             order = await self.order_repo.create_order(order_data)
 
-            try:
-                await self.payment_service.process_payment(order,method)
-            except PaymentFailedError:
-                logger.warning(f"Payment failed - order_id={order.order_id}")
-                raise 
-
             for item in checkout_data.items:
                 order_item = OrderItem(
                     order_id=order.order_id,
@@ -98,21 +101,21 @@ class OrderService:
             logger.info(f"Order items added successfully - order_id={order.order_id}")
 
             for item in checkout_data.items:
-                inventory = await self.inventory_repo.get_inventory(item.product_id)
-                if inventory is None:
-                    logger.warning(f"Inventory not found - product_id={item.product_id}")
-                    raise InventoryNotFoundError()
-                if inventory.quantity < item.quantity:
-                    logger.warning(f"Insufficient inventory - product_id={item.product_id} requested={item.quantity} available={inventory.quantity}")
-                    raise InsufficientStockError()
+                inventory = await self.inventory_repo.get_inventory_for_update(item.product_id)
 
                 inventory.quantity -= item.quantity
                 logger.info(f"Inventory decremented successfully - product_id={item.product_id} quantity={item.quantity}")
 
                 cart = await self.cart_repo.get_cart_item(item.product_id,item.cart_id)
                 await self.cart_repo.remove_from_cart(cart)
-            logger.info(f"Cart cleared successfully after order placement - order_id={order.order_id}")
 
+            try:
+                await self.payment_service.process_payment(order,method)
+                logger.info(f"Payment processed successfully - order_id={order.order_id} method={method}")
+            except PaymentFailedError:
+                logger.warning(f"Payment failed - order_id={order.order_id}")
+                raise 
+            
             order = await self.order_repo.get_order(order.order_id, user_id)
             logger.info(f"Order placed successfully - order_id={order.order_id} user_id={user_id}")
 
@@ -122,7 +125,7 @@ class OrderService:
         async with self.db.begin():
             order = await self.order_repo.get_order(order_id,user_id)
             if order is None:
-                logger.warning(f"Order not found for ID: {order_id}")
+                logger.warning(f"Order not found - order_id={order_id}")
                 raise OrderNotFoundError()
             if order.status == OrderStatus.CANCELLED:
                 logger.warning(f"Order cancellation failed: already cancelled - order_id={order_id}")
@@ -132,24 +135,28 @@ class OrderService:
                 raise OrderCannotBeCancelledError()
 
             for item in order.items:
-                inventory = await self.inventory_repo.get_inventory(item.product_id)
+                inventory = await self.inventory_repo.get_inventory_for_update(item.product_id)
                 if inventory is None:
                     logger.warning(f"Inventory not found - product_id={item.product_id}")
                     raise InventoryNotFoundError()
 
                 inventory.quantity += item.quantity
-            logger.info(f"Inventory incremented successfully - product_id={item.product_id}")
+                logger.info(f"Inventory incremented successfully - product_id={item.product_id}")
 
-            if order.payment.method != PaymentMethod.COD:
+            if order.payment.method == PaymentMethod.COD:
+                await self.payment_service.cancel_pending(order.payment)
+                logger.info(f"COD payment cancelled - order_id={order_id}")
+            else:
                 await self.payment_service.refund_payment(order.payment)
-            logger.info("Refund has been initated")
+                logger.info(f"Refund issued - order_id={order_id}")
 
             order.status = OrderStatus.CANCELLED
             logger.info("Order status has been updated to Cancelled")
             return self.orm_to_response(order)
 
-    async def return_order(self,order_id: int,user_id: int,reason: str):
+    async def return_order(self,user_id: int, order_id: int, return_order:ReturnOrderRequest):
         async with self.db.begin():
+            reason = return_order.reason
             order = await self.order_repo.get_order(order_id,user_id)
             if order is None:
                 logger.warning(f"Order not found: order_id={order_id}")
@@ -163,31 +170,33 @@ class OrderService:
                 logger.warning(f"Order return failed: return already requested - order_id={order_id}")
                 raise ReturnAlreadyRequestedError()
 
-            return_order = ReturnOrder(order_id=order.order_id,reason=reason,status=OrderStatus.RETURNED)
+            order.status = OrderStatus.RETURNED
+            return_order = ReturnOrder(order_id=order.order_id,reason=reason)
             await self.order_repo.create_return_order(return_order)
-            logger.info(f"Payment refunded successfully - order_id={order_id} payment_id={order.payment.payment_id}")
 
             for item in order.items:
-                inventory = await self.inventory_repo.get_inventory(item.product_id)
+                inventory = await self.inventory_repo.get_inventory_for_update(item.product_id)
                 if inventory is None:
                     logger.warning(f"Inventory not found - product_id={item.product_id}")
                     raise InventoryNotFoundError()
                 
                 inventory.quantity += item.quantity
-
-            logger.info(f"Inventory restored for returned order item - product_id={item.product_id} quantity={item.quantity}")
+                logger.info(f"Inventory restored for returned order item - product_id={item.product_id} quantity={item.quantity}")
+                
             await self.payment_service.refund_payment(order.payment)
             logger.info(f"Payment refunded for returned order - order_id={order_id} payment_id={order.payment.payment_id}")
 
             logger.info(f"Order return requested successfully - order_id={order_id}")
             return self.orm_to_response(order)
 
-    async def update_order_status(self,order_id:int,user_id:int,status:OrderStatus):
+    async def update_order_status(self,order_id:int,status:OrderUpdateStatus):
         async with self.db.begin():
-            order = await self.order_repo.get_order(order_id,user_id)
+            order = await self.order_repo.get_order_by_id(order_id)
             if order is None:
                 logger.warning(f"Order not found: order_id={order_id}")
                 raise OrderNotFoundError()
+            if status == OrderUpdateStatus.DELIVERED:
+                self.payment_service.mark_collected(order.payment)
             updated_order = await self.order_repo.update_order_status(order,status)
-            logger.info(f"Order status updated - order_id={order_id} to new_status={status}")
+            logger.info(f"Order status updated - order_id={order_id} new_status={status}")
             return self.orm_to_response(updated_order)

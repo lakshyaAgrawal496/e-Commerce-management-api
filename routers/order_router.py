@@ -3,15 +3,16 @@ from fastapi import status
 from dependencies import db_dependency
 from utils.auth import user_dependency, admin_dependency
 from services import OrderService
-from utils.enums import PaymentMethod, OrderStatus
+from utils.enums import PaymentMethod, OrderUpdateStatus
 from utils.response import success_response
+from models import ReturnOrderRequest
 
 router = APIRouter(
-    prefix="/order",
+    prefix="/orders",
     tags=["Order"]
 )
 
-@router.post("/place")
+@router.post("")
 async def place_order(db:db_dependency, user:user_dependency, method:PaymentMethod):
     order_service = OrderService(db)
     user_id = user["user_id"]
@@ -19,17 +20,6 @@ async def place_order(db:db_dependency, user:user_dependency, method:PaymentMeth
     return success_response(
         status_code=status.HTTP_201_CREATED,
         message="Order placed successfully",
-        data=order
-    )
-
-@router.get("/history")
-async def get_order_history(db:db_dependency, user:user_dependency):
-    order_service = OrderService(db)
-    user_id = user["user_id"]
-    order = await order_service.get_order_history(user_id)
-    return success_response(
-        status_code=status.HTTP_200_OK,
-        message="Order history fetched successfully",
         data=order
     )
 
@@ -44,7 +34,7 @@ async def get_order_by_id(db:db_dependency, user:user_dependency, order_id:int=P
         data=order
     )
 
-@router.patch("/cancel/{order_id}")
+@router.patch("/{order_id}/cancel")
 async def cancel_order(db:db_dependency, user:user_dependency, order_id:int=Path(gt=0)):
     order_service = OrderService(db)
     user_id = user["user_id"]
@@ -55,11 +45,11 @@ async def cancel_order(db:db_dependency, user:user_dependency, order_id:int=Path
             data=cancelled_order
         )
 
-@router.post("/return/{order_id}")
-async def return_order(db:db_dependency,user:user_dependency, order_id:int=Path(gt=0), reason:str=Query(min_length=5)):
+@router.post("/{order_id}/return")
+async def return_order(db:db_dependency,user:user_dependency, order_id:int, order:ReturnOrderRequest):
     order_service = OrderService(db)
     user_id = user["user_id"]
-    returned_order = await order_service.return_order(order_id,user_id,reason)
+    returned_order = await order_service.return_order(user_id,order_id,order)
     return success_response(
         status_code=status.HTTP_200_OK,
         message="Order return has been successfully initiated",
@@ -67,19 +57,24 @@ async def return_order(db:db_dependency,user:user_dependency, order_id:int=Path(
     )
 
 @router.get("")
-async def get_all_orders_by_admin(db:db_dependency,user:admin_dependency):
+async def get_all_orders(db:db_dependency,user:user_dependency):
     order_service = OrderService(db)
-    order = await order_service.get_all_orders()
+    role=user["role"]
+    if role=="admin":
+        order = await order_service.get_all_orders()
+    else:
+        user_id=user["user_id"]
+        order = await order_service.get_order_history(user_id)
     return success_response(
         status_code=status.HTTP_200_OK,
         message="Orders fetched successfully",
         data=order
     )
 
-@router.patch("/status")
-async def update_order_status(db:db_dependency,user:admin_dependency,order_status:OrderStatus,order_id:int=Query(gt=0),user_id:int=Query(gt=0)):
+@router.patch("/{order_id}")
+async def update_order_status(db:db_dependency,user:admin_dependency,order_status:OrderUpdateStatus,order_id:int=Path(gt=0)):
     order_service = OrderService(db)
-    updated_order = await order_service.update_order_status(order_id,user_id,order_status)
+    updated_order = await order_service.update_order_status(order_id,order_status)
     return success_response(
         status_code=status.HTTP_200_OK,
         message="Order status has been updated successfully",

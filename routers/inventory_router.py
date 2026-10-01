@@ -31,7 +31,7 @@ async def get_inventory(db:db_dependency, user:user_dependency):
     )
 
 @router.get("/{product_id}")
-async def get_inventory(db:db_dependency, user:user_dependency,product_id:int=Path(gt=0)):
+async def get_inventory(db:db_dependency, user:user_dependency, product_id:int=Path(gt=0)):
     inventory_service = InventoryService(db)
     inventory = await inventory_service.get_inventory(product_id)
     return success_response(
@@ -40,23 +40,13 @@ async def get_inventory(db:db_dependency, user:user_dependency,product_id:int=Pa
         data=inventory
     )
 
-@router.patch("/quantity/adjust")
-async def increment_inventory_quantity(db:db_dependency, user:admin_dependency, product_id:int=Query(gt=0), delta:int=Query(gt=0)):
+@router.patch("/{product_id}")
+async def update_inventory_quantity(db:db_dependency, user:admin_dependency,product_id:int=Path(gt=0), new_quantity:int=Query(ge=0)):
     inventory_service = InventoryService(db)
-    inventory = inventory_service.increment_inventory_quantity(product_id,delta)
+    inventory = await inventory_service.update_inventory_quantity(product_id,new_quantity)
     return success_response(
         status_code=status.HTTP_200_OK,
-        message="Inventory quantity adjusted successfully",
-        data=inventory
-    )
-
-@router.patch("/quantity/set")
-async def set_inventory(db:db_dependency, user:admin_dependency,product_id:int=Query(gt=0), new_quantity:int=Query(gt=0)):
-    inventory_service = InventoryService(db)
-    inventory = await inventory_service.set_inventory(product_id,new_quantity)
-    return success_response(
-        status_code=status.HTTP_200_OK,
-        message="Inventory quantity set successfully",
+        message="Inventory quantity updated successfully",
         data=inventory
     )
 

@@ -24,17 +24,6 @@ async def add_to_cart(db:db_dependency, user:user_dependency, cart_item:CartItem
 
 @router.get("")
 async def get_cart(db:db_dependency, user:user_dependency):
-    cart_service = CartService(db)
-    user_id = user["user_id"]
-    cart = await cart_service.get_cart(user_id)
-    return success_response(
-        status_code=status.HTTP_200_OK,
-        message="Cart fetched successfully",
-        data=cart
-    )
-
-@router.get("/checkout")
-async def checkout(db:db_dependency, user:user_dependency):
     checkout_service = CheckoutService(db)
     user_id = user["user_id"]
     checkout_data = await checkout_service.checkout(user_id)
@@ -44,7 +33,7 @@ async def checkout(db:db_dependency, user:user_dependency):
         data=checkout_data
     )
 
-@router.delete("/item/{product_id}")
+@router.delete("/{product_id}")
 async def remove_from_cart(db:db_dependency, user:user_dependency, product_id:int=Path(gt=0)):
     cart_service = CartService(db)
     user_id = user["user_id"]

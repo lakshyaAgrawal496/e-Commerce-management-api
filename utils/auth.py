@@ -7,14 +7,14 @@ from dependencies import token_dependency
 from exceptions.auth_exceptions import (AuthorizationError,AuthenticationError)
 
 def generate_access_token(user_id:int, email:str, role:str):
-        expires = datetime.now(timezone.utc)+timedelta(minutes=20)
-        payload = {
-            "sub" : str(user_id),
-            "email" : email,
-            "role" : role,
-            "exp" : expires
-        }
-        return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    expires = datetime.now(timezone.utc)+timedelta(minutes=20)
+    payload = {
+        "sub" : str(user_id),
+        "email" : email,
+        "role" : role,
+        "exp" : expires
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 def get_current_user(token: token_dependency):
     try:
